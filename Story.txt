@@ -1,0 +1,391 @@
+..ooOO Sand2 OOoo..
+''**OO Tursi OO**''
+
+Once, there was a lion. Except he was a man. A lion-man, if you will. He decided to
+write a demo for the GBA. This is his story...
+
+Basically, I'm writing this doc as I go along. It's thoughts, suggestions, rants, and
+anything else that comes to mind as I type. Feel free to use exerpts if any of it is
+useful. Or amusing. Or whatever, crap, I don't care.
+
+I'm taking my first stab at the GBA, and it's not bad so far, though a bit tough to find
+good descriptions of more than tiny parts in any one place.
+
+What is blowing my mind, though, is the number of newbie tutorials that I've read so
+far which appear to be WRITTEN by newbies. Newbies to programming at ALL, that is.
+
+Though, I guess I have to give people some credit for TRYING.
+
+Anyway, I decided to push myself on this one. The challenge, half-issued to me by a
+friend who's already finished a little game, was to do my stuff without using anyone
+else's libs. Fair enough - this demo contains all my own code (except for the startup
+code and standard C library stuff). So far there's no ASM, and I don't intend to use
+any unless I need to, but we'll see.
+
+I'm writing this readme file as I go along, to document the things I've learned and
+need to remember, as well as provide a bit of history.
+
+======================
+First Challenge: Audio
+======================
+First challenge, I've just completed: to playback over 4 minutes of audio in realtime
+with a reasonable compression/quality ratio. After several attempts, I ported the GSM
+library. GSM is used mostly in cellular telephones, and was intended for carrying voice
+signals only (to that end, this library would be good for compressing in-game speech).
+
+First, I needed to port the library so that it would compile and link with the standard
+GBA code. I obtained my compiler by downloading HAM, using it's IDE with a makefile
+modified to not bother with the HAMlib itself. The thing to watch is that you will
+usually need to compile with -mthumb-interwork - if any module has it, they all need it.
+It makes a hell of a lot more sense to fix your makefile and recompile, than use the
+'interflip' program I've seen offered as a solution, unless you have no choice. Hacking
+the header when you can simply rebuild is not a good idea. If you try to fool the tool-
+chain, you may eventually find you're the fool. It's your TOOL, not your Nemesis. Don't
+try to beat it.
+
+Next I needed to get the lib running fast enough to be realtime with CPU left over. I
+targetted 16kHz. With basic optimization, I got it to 10kHz playback. With a lot more
+optimization, and some code mangling, I got it to 43kHz. The most important things:
+-unroll your loops (unroll-all doesn't tend to be necessary)
+-(GBA specific) if it's time-crucial ARM code, run it from RAM (automatic if you use
+ '__attribute__ ((section (".iwram"), long_call))' with the common linker stuff)
+-if you can control the input data, you can reduce or eliminate error checking at runtime
+-Avoid redundant processing. Do as much as you can each pass through the data. (ie: in
+ this case, converting the output data to 8-bit from 13-bit instead of the original
+ behaviour of converting to 16-bit, then later converting THAT to 8-bit)
+-watch your stack use. Keep it minimal. On small systems, globals/statics tend to
+ be much more efficient (sometimes, see below)
+-Do as little work as possible inside of loops - be especially wary of complex math which
+ could be pre-calculated once outside the loop (and possibly incremented). For example,
+ one loop I worked with did (x+(idx*40)) inside the loop, where 'x' was precalculated,
+ and idx was the index variable. It was much faster to define a new variable, 'tmpx',
+ set it to 'x' outside the loop, and add 40 to it each pass, than perform the
+ multiplication and addition each pass. (ie: in the loop it became (tmpx); tmpx+=40; )
+-Don't get tricky. Excessively complex code can confuse the optimizer. Work with your
+ tools, not against them.. I see this all the time. In this case, the GSM lib was doing
+ a very clever trick that built up a table using a do..while loop nested *partially*
+ inside a switch..case. It took me building a sample application to understand what it
+ was trying to do (another good reason not to do tricks like this) - it's sole purpose
+ was to automatically determine how many padding bytes were needed, as well as to write
+ the main data, in one loop. Breaking it into two pieces of code (padding, then the loop),
+ allowed the optimizer to do a much better job on it. BTW: avoid using side-effects in
+ your code. It can break when you change compilers, and it's completely unreadable to
+ someone coming in. In this case, the side-effect was that the do..while loop worked
+ even though the 'do' statement was never executed. Don't count on things like that,
+ though. I've seen another piece of code that used the line number information provided
+ by the compiler for debugging to implement the equivalent of a 'resume' in his functions,
+ so he could exit the function, but pick up where he left off next call. Then he blamed
+ the compiler when it couldn't optimize this code correctly. That code should have
+ been handled with a state variable and/or multiple functions, anything but using debug
+ information to control the logic.
+
+The second part of that task was to make the audio player function in interrupt mode.
+Took a few tries, but finally got it going smoothly. No real tips here, except to watch
+the order of setting the control bits for interrupts, and watch stack use again. If you're
+not doing anything complex with interrupts, you might switch the crt0 over to simple
+interrupt mode.
+
+==============================
+Second Challenge: Keypad input
+==============================
+I don't really need keypad input for much in THIS project, but some would say that it's
+a valuable thing if you ever want to do a game, so I'm tagging in a restart-on-any-key
+at the end of the demo.
+
+Except it's impossible to find any sources that demonstrate how to read it!
+
+"But Lion-Man," you sneer, "It's so obvious! Just read the register!"
+"Shut up!" I snarl back, "First off, it's 'Tursi', secondly the damn thing isn't working."
+
+Solved: The keys were working just fine, however the program crashed after exitting the
+main loop, so the music didn't stop.
+
+Tip: when dealing with weird behaviour, add code that can verify your theory about what is
+malfunctioning! You may find it's weird only because something you didn't think of, was
+actually what was failing.
+
+======================
+Third Challenge: Video
+======================
+Tip: chars default to UNSIGNED on the arm compiler.
+Tip: unroll-loops can cause increased stack use
+
+===============================
+Fourth Challenge: Real Hardware
+===============================
+About this time I got my flash cart, and loaded it up on the GBA. The audio didn't work
+at all, it was skipping and playing crap... sounding like it was not resetting to the
+beginning of the buffer. I also noted that the display was updating more slowly,
+suggesting less CPU was available.
+
+Tip: Emulators very rarely get timing right
+Tip: Emulators often make assumptions, and not all authors have access to the real
+hardware to test things on.
+
+So watching the demo run, it looks like the audio is decoding correctly, the waveforms
+look right, but the audio is wrong, and sounds a lot like when the DMA was simply looping.
+
+Tip: The DMA loops every 32k - that's it's maximum transfer block. Therefore, if you just
+let it go, it will repeatedly copy the same 32k. Playing back at 16khz, that means the
+noise repeats every 2 seconds. Do the math.
+
+Solution: If you change the DMA start address, you must STOP and restart DMA by clearing
+and then setting again the DMA controller address before the change will take effect.
+In VisualBoyAdvance, the change takes effect immediately.
+
+============================
+Fifth Challenge: Stack Space
+============================
+Using the publically available linker scripts meant I was restricted to the choices made
+for me for stacks. However, I was running out of stack space, causing crashes, and moving
+variables into globals, to reduce stack usage, was slowing down code that would normally
+store the variable in a register. Which leads to a few tips:
+
+Tip: local variables in registers don't use stack space, but remember that 'register' is
+only a HINT to the compiler.
+Tip: generate and read a map file, so you can understand the memory layout of your
+program. I used this to check that I wasn't using too much of the 32k memory space, and
+to see where the compiler was placing different variables, as well as the stack pointers.
+It's just a textfile you can read. You can generate a makefile by adding this switch to
+your linker line (LD): -Map=myfilename.map
+
+Stack pointers are the big one. I only knew the basics when I started. But it's actually
+pretty easy. In Jeff Frohwein's default 'lnkscript', all the different pointers are
+defined in this block of code:
+
+__text_start = DEFINED (__gba_multiboot) ? 0x2000000 : 0x8000000;
+__eheap_end       = 0x2040000;
+__iwram_start     = 0x3000000;
+__iheap_end       = 0x3008000 - 0x400;
+__sp_usr          = 0x3008000 - 0x100;
+__sp_irq          = 0x3008000 - 0x60;
+
+(I've deleted the commented out ones, and left out the vector and offsets which wouldn't
+make any sense to alter.)
+
+What does it mean? It's pretty straightforward, really, but it took me a few tries to get
+it to work.
+
+Tip: When modifying makefiles, linker scripts, and so on, check the command lines output
+by make to ensure the one you changed is actually the one being used!
+
+So anyway, the __text_start indicates where in memory your program will actually be loaded
+to. The text section always indicates the beginning of the program. (I've never been
+able to find out why it's called 'text', though.) In this script, we see that it's one
+of two locations: 0x2000000 if you've defined the __gba_multiboot variable (which is the
+start of the GB's 256k RAM), or 0x8000000 if not (which is the start of cartridge ROM).
+
+__eheap_end indicates the top of user memory. Malloc and such functions build down from
+this point (edit: I believe. Either way....), so this is the top of *available* memory.
+You could reserve fixed amounts of it by lowering this value by the amount of space you
+need/want.
+
+__iwram_start indicates the beginning of the iwram section. This is the GBA's 32k internal
+RAM. Note that HAM's default script increases this to 0x3000500, reportedly to leave
+memory untouched for the AFM module (unless using Krawall). Same idea as I mention for
+__eheap_end.
+
+__iheap_end indicates the end of the free iwram section, and the top of the internal
+heap. The subtracted value indicates space that has been reserved for the next two stack
+pointers.
+
+__sp_usr is (IIUC) the top of the user stack. Function calls, parameters, and so forth,
+are loaded starting at this address, and counting down towards __iheap_end. (However,
+I believe that nothing stops it if it reaches that address, but it then becomes possible
+and likely that the stack and/or program will be corrupted.)
+
+__sp_irq is the top of the interrupt stack. All stack data required while processing in
+an interrupt context start here, and build down towards __sp_usr. If this one overflows,
+then it *will* corrupt the program stack.
+
+So how do you get more stack? That's pretty easy. First see how much stack you currently
+have, by subtracting the appropriate handles from each other. Because we're calculating
+them all by subtracting fixed numbers from the top of physical RAM, it's pretty easy,
+we can just work with those numbers instead of the actual addresses:
+Int stack size = 0x100-0x60 = 0xA0 = 160 bytes
+User stack size= 0x400-0x100= 0x300= 768 bytes
+
+Most of my stack use, currently, is on the interrupt thread, where I do the GSM decoding.
+But I expect heavier stack use in the future. So I decided to even it out and give 1k
+to each stack (leaving 30k minus a little bit for system data). 1k is 0x400 bytes, so,
+we work backwards to get the new values:
+
+__sp_irq is at the top of the useful memory, we don't need to change it.
+__sp_usr marks the top of the user stack, and the bottom of the IRQ stack. So we need to
+place it at __sp_irq-0x400, which is 0x3008000 - (0x60 + 0x400), so 0x3008000-0x460
+__iheap_end marks the top of the heap, and the bottom of the user stack. So we need to
+place it at __sp_usr-0x400, which is 0x3008000 - (0x460 + 0x400), so 0x3008000-0x860
+
+and we get...
+__iheap_end       = 0x3008000 - 0x860;
+__sp_usr          = 0x3008000 - 0x460;
+__sp_irq          = 0x3008000 - 0x60;
+...which gives us 1k in each stack.
+
+Just be careful with messing with it too much. Remember the IWRAM block is only 32k, and
+if you're copying program code in there, it's easy to run out. It's preferred to keep the
+stack in this memory block for speed reasons.
+
+==============================
+Sixth Challenge: Video Updates
+==============================
+I wanted to use the special DMA 'capture' mode to copy data to video RAM as the screen
+was drawn, instead of drawing directly to the screen (which may not look very smooth
+in the 15 bit color mode.) I spent quite a bit of time fiddling with the DMA registers,
+trying to make it go, before finally trying it on the real GBA and finding out it was
+in fact working just fine.
+
+Tip: None of the GBA emulators I could find on the net right now support the 'Video
+Capture' mode of DMA3 - they all ignore the setting. I tried a half-dozen different
+emulators.
+
+Tip: By default, globally declared variables are placed in the 32k RAM block, while
+alloc'd data is placed in the 256k RAM block. Use this knowledge to design your structure
+layout. For example, you can't fit a full Mode3-sized screen buffer in a global array. ;)
+
+Before resigning myself to the sadness which is only being able to test on real hardware,
+though, I watched the machine and it looks like performance is too low - the DMA,
+combined with the overhead of the audio decoding, leaves pretty much nothing to the CPU.
+I'm clearly asking too much of the little system.
+
+Tip: Offload work onto the co-processors where ever possible. In the GBA's case, your
+only friend is the video chip. (Since DMA stops the CPU, it doesn't allow coprocessing.)
+
+So - a redesign of the introduction to make use of sprites and the video hardware,
+instead of shuffling data around, is now required...
+
+Misc Comment: By this time, I was getting tired of the build time. The makefiles provided
+with HAM automatically clean out object files after every build. While building clean IS
+a good idea, it's not necessary for things like large data files. Therefore, I moved my
+sample data into a separate C module, referenced it extern, and built it as a *.obj
+(HAM's scripts only clean .o files). This way it won't need to be rebuilt unless it
+actually changes.
+
+===============================
+Seventh Challenge: Code Cleanup
+===============================
+Every relatively unplanned project reaches a point where you start saying, "Boy, I really
+need that code over here." So you can copy and paste, and usually will till you realize
+how silly it's getting, or you reorganize the code into functions and so forth. So that's
+what I did today when I added an extra module to display my intro logo, because I'd like
+to reuse that code.
+
+==============================
+Eighth Challenge: Intro Screen
+==============================
+I decided that it'd be very cool to have a little 'presented by' screen with my character,
+so I got to work on that. On first pass, however, the picture was far too dark. So I
+brightened the images, and tried again. Good, except now there were random pixels in the
+emulator that refused to fade in and out. I assumed emulator bug, and tried another -
+to the same effect.
+
+So I watched the real GBA more closely, and found I *could* see the pixels, and further,
+they reflected color 0 (which is 'transparent').
+
+Tip: The backdrop color is the color from palette entry 0
+Tip: The backdrop does not fade or brighten with the background # you are working with
+Tip: The GBA screen is VERY dark and low contrast compared to emulators - watch your
+images.
+
+=====================
+Ninth Challenge: Text
+=====================
+Having created and imported a font, it was next necessary to draw stuff on the screen.
+
+Tip: Tile indexes are 16-bit, not 8-bit as in most old computers. Furthermore, the
+upper 6 bits of the index are control bits, allowing neat things like flipping, and
+multiple palettes.
+Tip: Even simple tables, like a 16-color palette, are easy to mess up when you try to
+do it by hand. If in doubt, generate your tables.
+Tip: Being able to examine memory and step is invaluable. If you're using Windows, BatGBA
+makes this very easy (unfortunately, VisualBoy still works a bit better overall.) (Edit:
+VisualBoyAdvance also lets you do MOST, but not all, of BatGBA's memory viewing. Bat also
+lets you change registers, though.)
+Tip: Remember that unlike the bitmap modes, the graphics are organized into tiles (as
+opposed to lines). This affects the format in which you will save your graphics.
+
+For what it's worth, after trying a handful of graphics converters, I came across
+Kaleid at http://www.geocities.com/kaleid_gba/. This is the one, folks, it does it all
+and it does it RIGHT, and gives you some control over the output file. It's not perfect,
+the output file is always a .h (.c is more useful for large files!), and it doesn't do
+color conversion, but it's close.
+
+I don't like this text font, however, so I won't be using it.
+
+===========================
+Tenth Challenge: Text, pt 2
+===========================
+So, the text described above was simply replaced with a 16-color bitmap laid out the
+way I wanted it. Sometimes, it's just better to go with what's easy than trying to get
+TOO fancy.
+
+I still needed to overlay the location text on the scrolling 16-bit image, though, and
+that required learning sprites. The only gotcha, though, was remembering that bitmap
+mode uses up the first 512 sprite tiles, so not only do you have to load your data starting
+at tile 512, but you really need to also indicate tile numbers starting at 512 to the
+sprites themselves. ;)
+
+==========================================
+Eleventh Challenge: Those Wacky Interrupts
+==========================================
+I became interested in the concept of using HBlank interrupts for some copper-style
+effects, and set to work on the interrupt handler, attempting to optimize it. The first
+thing I found is that my audio decoder, as optimized as it is, is incapable of dealing
+with the interference provided by an HBlank interrupt - even a simple one. But, I did
+learn a few things:
+
+1- Until you clear the corresponding bit in REG_IF, that interrupt will not be triggered
+again. If you clear it in your interrupt handler, your interrupt handler may be called
+again even if it has not finished processing the last one yet! (I took advantage of this
+when I found my VBlank interrupt was only triggering every other frame, because of the
+audio decoder taking too long to process. I now cache the register, do my simple
+processing (vblank), clear the bits, THEN process my timer/audio. It's critical with
+this technique that my timer not expire again before the function exits, however! :) )
+
+2- Careful layout of your interrupt handler can thus allow you to have recursive calls,
+but consider what you are doing carefully! Keep the code which can be re-executed simple.
+In my case, the VBlank handler merely increments a variable, nothing more.
+
+Of course, discovering the VBlank error threw my timing off... but since the main code
+was synchronized to the audio playback, it was a trivial thing to correct.
+
+Next, however, I need an alternative to the Hblank interrupts, and I think my saviour
+lies with HDMA (even though it doesn't work on the emulators....)
+
+===================================
+Twelfth Challenge: Spelling Twelfth
+===================================
+
+Tip: I used Google
+
+The biggest challenge here was picking the project back up after weeks of working on my 
+screencam. Finally, I did, and I needed to implement a nice sine wave table for my starfield
+code. I finally generated such a table using the PC, and after a bit of trial and error,
+converted my floating-point starfield code to use it.
+
+Tip: When importing tables such as sine tables, make sure that your reference matches the
+declaration! For instance, I couldn't understand why my starfield would not rotate counter-
+clockwise, when the same code worked on the PC! I finally found that my external reference
+defined the table as u16 - unsigned 16-bit, when the table itself was declared signed 16-bit.
+The compiler did NOT throw a warning, and the code used it as unsigned!
+
+===========================================
+Thirteenth Challenge: Troubleshooting Hangs
+===========================================
+
+Tip: DMA must start on the appropriate word boundary. Although the hardware will compensate
+if you, for instance, provide an odd numbered address, it (a) takes more time, and
+(b) appears to be a bit unstable on real hardware. (?) Watch your alignment.
+
+Tip: Lookup tables, where possible, should contain a power of 2 number of entries. Range
+testing for the table is then possible with a simple mask. If your table is designed to
+repeat over a range (ie: SINE tables), then it's even better.
+
+Most of today's work simply went into further tweaks of the audio code, and tracking down
+the above hang which only occurred on real hardware. We need emulators to pop up and warn
+us when we do DMA on a bad alignment, I think, not just work with it. ;)
+
+=======================================
+This document has gotten really boring.
+=======================================
+

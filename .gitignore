@@ -1,0 +1,11 @@
+*.stackdump
+*.obj
+*.bak
+*.s
+*.raw
+*.bin
+*.elf
+*.gba
+*.map
+*.sgm
+*.ini
