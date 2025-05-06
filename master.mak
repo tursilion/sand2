@@ -15,7 +15,7 @@ HAM_LIBGCC_STYLE = normal
 # Set this to the directory in which you installed
 # the HAM system
 #
-HAMDIR = c:/work/ham
+HAMDIR = d:/work/gba/ham2.8/
 
 # Set this dir to the one that contains your
 # compiler and linker and stuff (gcc.exe)
@@ -79,14 +79,14 @@ endif
 #
 # Emulator of choice
 #
-HAM_EMUPATH = C:/emu/gba/visualboyadvance.exe 
+HAM_EMUPATH = d:/emu/gba/visualboyadvance.exe 
 
 #
 # Libs to link into your binaries (remove -lham to link without HAMlib)
 # (note that the double appearance of lgcc is on purpose to deal with sprintf)
 #
 #LD_LIBS = -lham -lm -lstdc++ -lsupc++ -lgcc -lc -lgcc
-LD_LIBS = -lham -lm -lgcc -lc -lgcc
+LD_LIBS = -lm -lgcc -lc -lgcc
 
 # --------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------

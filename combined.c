@@ -92,6 +92,8 @@ int DEEMPHASIS=DEFAULTDEEMPHASIS;
 #define GSM_MULT_R(a, b) /* word a, word b, !(a == b == MIN_WORD) */	\
 	(SASR( ((longword)(a) * (longword)(b)), 15 ))
 
+// add and subtract are meant to be 16-bit math with clamping - I removed the clamping
+// for speed and meant to correct with the deemphasis
 #define	GSM_ADD(a, b)	\
     ((a)+(b))
 
